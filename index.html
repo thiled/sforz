@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>sforz</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/web-audio-daw@4.7.2/build/wad.min.js"></script>
+    <style>
+      .item {
+        display: inline-block;
+        width: 50px;
+        height: 50px;
+        background-color: white;
+        color: black;
+        text-align: center;
+        margin-right: 5px;
+        margin-bottom: 5px;
+        vertical-align: middle;
+        cursor: pointer;
+        border: 1px black solid;
+      }
+
+      .item_wrap {
+        height: 50px;
+        display: flex;
+        width: 100%;
+        flex-direction: column;
+        justify-items: center;
+        justify-content: center;
+      }
+      .item_key {
+        font-size: 12px;
+      }
+      .item_black {
+        background-color: black;
+        color: white;
+      }
+      .playing {
+        background-color: red;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div
+        class="item"
+        v-for="item in list"
+        @mousedown="onMouseDown(item.wad)"
+        @mouseup="onMouseUp(item.wad)"
+        @click="onClick(item)"
+        :class="getItemStyle(item)"
+      >
+        <div class="item_wrap">
+          <span class="item_symbol">{{item.symbol}}</span>
+          <span class="item_key">{{item.desc}}</span>
+        </div>
+      </div>
+    </div>
+    <script>
+      let fileStartNo = 21;
+      // 准备88个音符
+      const BasicSymbols = [
+        'C',
+        'C#',
+        'D',
+        'D#',
+        'E',
+        'F',
+        'F#',
+        'G',
+        'G#',
+        'A',
+        'A#',
+        'B'
+      ];
+      let symbols = ['A0', 'A0#', 'B0'];
+      let keyMap = {};
+      for (let i = 1; i < 8; i++) {
+        for (let j = 0; j < 12; j++) {
+          symbols.push(BasicSymbols[j] + i);
+        }
+      }
+      symbols.push('C8');
+      //
+      new Vue({
+        data() {
+          return {
+            list: [],
+            focusItem: null,
+            keyMap: {} // key字典，用于按键时快速找到已绑定的音符
+          };
+        },
+        el: '#app',
+        mounted() {
+          this.init();
+          this.handleKeyEvent();
+        },
+        methods: {
+          handleKeyEvent() {
+            document.addEventListener('keydown', event => {
+              if (event.key === 'Tab' || event.key === 'Alt') {
+                event.preventDefault();
+              }
+              if (this.focusItem) {
+                // 设置音符
+                let keyDesc = this.handleExKeys(event);
+                this.focusItem.key = event.code;
+                this.focusItem.desc = keyDesc;
+                this.storeKey(this.focusItem.symbol, event.code);
+                if (this.keyMap[event.code]) {
+                  this.keyMap[event.code].key = '';
+                  this.keyMap[event.code].desc = '';
+                  this.storeKey(this.keyMap[event.code].symbol, '');
+                }
+                this.keyMap[event.code] = this.focusItem;
+                this.focusItem = null;
+              } else {
+                // 开始播放
+                if (
+                  this.keyMap[event.code] &&
+                  !this.keyMap[event.code].isPlaying
+                ) {
+                  this.keyMap[event.code].wad.play();
+                  this.keyMap[event.code].isPlaying = true;
+                }
+              }
+            });
+            document.addEventListener('keyup', event => {
+              // 停止播放
+              if (
+                this.keyMap[event.code] &&
+                this.keyMap[event.code].isPlaying
+              ) {
+                this.keyMap[event.code].wad.stop();
+                this.keyMap[event.code].isPlaying = false;
+              }
+            });
+          },
+          init() {
+            // 初始化
+            for (let n = 0, len = symbols.length; n < len; n++) {
+              let fileNo = fileStartNo + n;
+              let key = this.getKeyFromStore(symbols[n]);
+              let desc = (key && this.getDescFromStore(key)) || '';
+              symbols[n] = {
+                symbol: symbols[n],
+                key: key || '',
+                wad: new Wad({
+                  source: `./KEPSREC${
+                    fileNo < 100 ? '0' + fileNo : fileNo
+                  }.wav`,
+                  env: {
+                    attack: 0,
+                    sustain: 1,
+                    decay: 0,
+                    hold: -1,
+                    release: 2
+                  }
+                }),
+                desc,
+                isPlaying: false
+              };
+              if (key) {
+                this.keyMap[key] = symbols[n];
+              }
+            }
+            this.list = symbols;
+          },
+          getItemStyle(item) {
+            // 黑键样式
+            // 播放焦点样式
+            return {
+              item_black: item.symbol.match(/#/),
+              playing: item.isPlaying
+            };
+          },
+          handleExKeys(event) {
+            // 键位显示的特殊处理
+            let desc = event.key;
+            switch (desc) {
+              case 'Control':
+                desc = 'Ctrl';
+              case 'Shift':
+              case 'Alt':
+                desc = desc + (event.code.match(/Right/) ? 'R' : 'L');
+                break;
+              case ' ':
+                desc = 'Space';
+                break;
+              case 'Backspace':
+                desc = '←';
+                break;
+              case 'CapsLock':
+                desc = 'Caps';
+                break;
+              case 'Delete':
+                desc = 'Del';
+                break;
+              case 'Insert':
+                desc = 'Ins';
+                break;
+            }
+            if (desc.length === 1) {
+              // 字母大写
+              desc = desc.toUpperCase();
+            }
+            // 允许重复设置,key描述
+            this.storeDesc(event.code, desc);
+            // 左右标识
+            return desc;
+          },
+          // 播放
+          onMouseDown(wad) {
+            wad.play();
+          },
+          // 停止
+          onMouseUp(wad) {
+            wad.stop();
+          },
+          onClick(item) {
+            if (this.focusItem === item) {
+              // 二次点击取消设置
+              item.desc = '';
+              this.focusItem = null;
+              return;
+            }
+            if (this.focusItem && !this.focusItem.key) {
+              // 取消上一个未完成的键设置
+              this.focusItem.desc = '';
+            }
+            if (item.key) {
+              // 清除键位字典
+              this.keyMap[item.key] = null;
+            }
+            // 清除当前设置，等待设置
+            item.key = '';
+            this.storeKey(item.symbol, '');
+            this.focusItem = item;
+            item.desc = '...';
+          },
+          getKeyFromStore(s) {
+            // 找到存储的音符对应的code
+            return window.localStorage.getItem(s);
+          },
+          getDescFromStore(key) {
+            // 找到键位描述
+            return window.localStorage.getItem(key);
+          },
+          // 存储音符对应键位
+          storeKey(s, key) {
+            if (key) {
+              window.localStorage.setItem(s, key);
+            } else {
+              window.localStorage.removeItem(s);
+            }
+          },
+          // 存储键位描述
+          storeDesc(key, desc) {
+            window.localStorage.setItem(key, desc);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
